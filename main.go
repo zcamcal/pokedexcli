@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"strings"
@@ -57,6 +58,12 @@ func main() {
 			callback:    commandMapBack,
 		},
 
+		"catch": {
+			name:        "catch",
+			description: "allows us to capture a pokemoon",
+			callback:    commandCatch,
+		},
+
 		"explore": {
 			name:        "explore",
 			description: "explore more about the selected zone",
@@ -97,37 +104,7 @@ func main() {
 	}
 }
 
-func getLocationsPokemon[T any](path string, config config) (pokeIterator[T], error) {
-	val, ok := config.cache.Get(path)
-	if ok {
-		var pokeResponse pokeIterator[T]
 
-		if err := json.Unmarshal(val, &pokeResponse); err != nil {
-			return pokeResponse, err
-		}
-	}
-
-	res, err := http.Get(path)
-	if err != nil {
-		return pokeIterator[T]{}, err
-	}
-	defer res.Body.Close()
-
-	decoder := json.NewDecoder(res.Body)
-
-	var pokeResponse pokeIterator[T]
-	marshalled, err := json.Marshal(pokeResponse)
-	if err != nil {
-		return pokeIterator[T]{}, err
-	}
-	config.cache.Add(path, marshalled)
-
-	if err := decoder.Decode(&pokeResponse); err != nil {
-		return pokeIterator[T]{}, err
-	}
-
-	return pokeResponse, nil
-}
 
 func commandExplore(args []string, config *config) error {
 	names, err := config.poketory.Encounters(args[0])
@@ -139,6 +116,29 @@ func commandExplore(args []string, config *config) error {
 	fmt.Println("Found Pokemon:")
 	for _, name := range names {
 		fmt.Printf("- %v\n", name)
+	}
+
+	return nil
+}
+
+func commandCatch(args []string, config *config) error {
+	pokemonName := args[0]
+	experiencie, err := config.poketory.Pokemon(pokemonName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Throwing a Pokeball at %v...\n", pokemonName)
+
+	mostExperiencedPokemon := 1000
+	chanceToCatch := rand.IntN(mostExperiencedPokemon)
+
+	rate := mostExperiencedPokemon - experiencie
+
+	if chanceToCatch <= rate {
+		fmt.Printf("%v was caught!\n", pokemonName)
+	} else {
+		fmt.Printf("%v escaped!\n", pokemonName)
 	}
 
 	return nil
@@ -218,4 +218,36 @@ func cleanInput(text string) []string {
 	texts := strings.Fields(lowered)
 
 	return texts
+}
+
+func getLocationsPokemon[T any](path string, config config) (pokeIterator[T], error) {
+	val, ok := config.cache.Get(path)
+	if ok {
+		var pokeResponse pokeIterator[T]
+
+		if err := json.Unmarshal(val, &pokeResponse); err != nil {
+			return pokeResponse, err
+		}
+	}
+
+	res, err := http.Get(path)
+	if err != nil {
+		return pokeIterator[T]{}, err
+	}
+	defer res.Body.Close()
+
+	decoder := json.NewDecoder(res.Body)
+
+	var pokeResponse pokeIterator[T]
+	marshalled, err := json.Marshal(pokeResponse)
+	if err != nil {
+		return pokeIterator[T]{}, err
+	}
+	config.cache.Add(path, marshalled)
+
+	if err := decoder.Decode(&pokeResponse); err != nil {
+		return pokeIterator[T]{}, err
+	}
+
+	return pokeResponse, nil
 }
