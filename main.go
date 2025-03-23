@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zcamcal/pokedexcli/internal/pokecache"
+	"github.com/zcamcal/pokedexcli/internal/pokerepository"
 )
 
 type pokeIterator[T any] struct {
@@ -25,15 +26,16 @@ type pokeLocation struct {
 }
 
 type config struct {
+	cache    *pokecache.Cache
 	next     string
 	previous string
-	cache    *pokecache.Cache
+	poketory pokerepository.PokeApi
 }
 
 type cliCommand struct {
 	name        string
 	description string
-	callback    func(config *config) error
+	callback    func(args []string, config *config) error
 }
 
 func main() {
@@ -48,11 +50,19 @@ func main() {
 			description: "help us gathering all maps from some configured location",
 			callback:    commandMap,
 		},
+
 		"mapb": {
 			name:        "mapb",
 			description: "help us gatherin the same page we gather before",
 			callback:    commandMapBack,
 		},
+
+		"explore": {
+			name:        "explore",
+			description: "explore more about the selected zone",
+			callback:    commandExplore,
+		},
+
 		"exit": {
 			name:        "exit",
 			description: "Exit the Pokedex",
@@ -60,10 +70,12 @@ func main() {
 		},
 	}
 
-	cache := pokecache.NewCache(5 * time.Second)
+	interval := 5 * time.Second
+	cache := pokecache.NewCache(interval)
+	poketory := pokerepository.NewPokeApi(interval)
 
 	scanner := bufio.NewScanner(os.Stdin)
-	config := &config{cache: &cache}
+	config := &config{cache: &cache, poketory: poketory}
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -78,17 +90,17 @@ func main() {
 			continue
 		}
 
-		err := v.callback(config)
+		err := v.callback(cleaned[1:], config)
 		if err != nil {
 			fmt.Printf("error from callback => %v", err)
 		}
 	}
 }
 
-func getLocationsPokemon(path string, config config) (pokeIterator[pokeLocation], error) {
+func getLocationsPokemon[T any](path string, config config) (pokeIterator[T], error) {
 	val, ok := config.cache.Get(path)
 	if ok {
-		var pokeResponse pokeIterator[pokeLocation]
+		var pokeResponse pokeIterator[T]
 
 		if err := json.Unmarshal(val, &pokeResponse); err != nil {
 			return pokeResponse, err
@@ -97,34 +109,49 @@ func getLocationsPokemon(path string, config config) (pokeIterator[pokeLocation]
 
 	res, err := http.Get(path)
 	if err != nil {
-		return pokeIterator[pokeLocation]{}, err
+		return pokeIterator[T]{}, err
 	}
 	defer res.Body.Close()
 
 	decoder := json.NewDecoder(res.Body)
 
-	var pokeResponse pokeIterator[pokeLocation]
+	var pokeResponse pokeIterator[T]
 	marshalled, err := json.Marshal(pokeResponse)
 	if err != nil {
-		return pokeIterator[pokeLocation]{}, err
+		return pokeIterator[T]{}, err
 	}
 	config.cache.Add(path, marshalled)
 
 	if err := decoder.Decode(&pokeResponse); err != nil {
-		return pokeIterator[pokeLocation]{}, err
+		return pokeIterator[T]{}, err
 	}
 
 	return pokeResponse, nil
 }
 
-func commandMapBack(config *config) error {
+func commandExplore(args []string, config *config) error {
+	names, err := config.poketory.Encounters(args[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Exploring pastoria-city-area...")
+	fmt.Println("Found Pokemon:")
+	for _, name := range names {
+		fmt.Printf("- %v\n", name)
+	}
+
+	return nil
+}
+
+func commandMapBack(args []string, config *config) error {
 
 	if config.previous == "" {
 		fmt.Println("you're on the first page")
 		return nil
 	}
 
-	pokeIterations, err := getLocationsPokemon(config.previous, *config)
+	pokeIterations, err := getLocationsPokemon[pokeLocation](config.previous, *config)
 	if err != nil {
 		return err
 	}
@@ -148,14 +175,14 @@ func commandMapBack(config *config) error {
 	return nil
 }
 
-func commandMap(config *config) error {
+func commandMap(args []string, config *config) error {
 	path := "https://pokeapi.co/api/v2/location-area"
 
 	if config.next != "" {
 		path = config.next
 	}
 
-	pokeIterations, err := getLocationsPokemon(path, *config)
+	pokeIterations, err := getLocationsPokemon[pokeLocation](path, *config)
 	if err != nil {
 		return err
 	}
@@ -175,12 +202,12 @@ func commandMap(config *config) error {
 	return nil
 }
 
-func commandHelp(config *config) error {
+func commandHelp(args []string, config *config) error {
 	fmt.Println("Welcome to the Pokedex!")
 	return nil
 }
 
-func commandExit(config *config) error {
+func commandExit(args []string, config *config) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
