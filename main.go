@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/zcamcal/pokedexcli/internal/pokecache"
 )
 
 type pokeIterator[T any] struct {
@@ -24,6 +27,7 @@ type pokeLocation struct {
 type config struct {
 	next     string
 	previous string
+	cache    *pokecache.Cache
 }
 
 type cliCommand struct {
@@ -56,8 +60,10 @@ func main() {
 		},
 	}
 
+	cache := pokecache.NewCache(5 * time.Second)
+
 	scanner := bufio.NewScanner(os.Stdin)
-	config := &config{}
+	config := &config{cache: &cache}
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -79,7 +85,16 @@ func main() {
 	}
 }
 
-func getLocationsPokemon(path string) (pokeIterator[pokeLocation], error) {
+func getLocationsPokemon(path string, config config) (pokeIterator[pokeLocation], error) {
+	val, ok := config.cache.Get(path)
+	if ok {
+		var pokeResponse pokeIterator[pokeLocation]
+
+		if err := json.Unmarshal(val, &pokeResponse); err != nil {
+			return pokeResponse, err
+		}
+	}
+
 	res, err := http.Get(path)
 	if err != nil {
 		return pokeIterator[pokeLocation]{}, err
@@ -89,6 +104,12 @@ func getLocationsPokemon(path string) (pokeIterator[pokeLocation], error) {
 	decoder := json.NewDecoder(res.Body)
 
 	var pokeResponse pokeIterator[pokeLocation]
+	marshalled, err := json.Marshal(pokeResponse)
+	if err != nil {
+		return pokeIterator[pokeLocation]{}, err
+	}
+	config.cache.Add(path, marshalled)
+
 	if err := decoder.Decode(&pokeResponse); err != nil {
 		return pokeIterator[pokeLocation]{}, err
 	}
@@ -103,7 +124,7 @@ func commandMapBack(config *config) error {
 		return nil
 	}
 
-	pokeIterations, err := getLocationsPokemon(config.previous)
+	pokeIterations, err := getLocationsPokemon(config.previous, *config)
 	if err != nil {
 		return err
 	}
@@ -134,7 +155,7 @@ func commandMap(config *config) error {
 		path = config.next
 	}
 
-	pokeIterations, err := getLocationsPokemon(path)
+	pokeIterations, err := getLocationsPokemon(path, *config)
 	if err != nil {
 		return err
 	}
