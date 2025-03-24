@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"math/rand/v2"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -14,22 +12,14 @@ import (
 	"github.com/zcamcal/pokedexcli/internal/pokerepository"
 )
 
-type pokeIterator[T any] struct {
-	Count    int    `json:"count"`
-	Next     string `json:"next"`
-	Previous string `json:"previous"`
-	Results  []T    `json:"results"`
-}
-
-type pokeLocation struct {
-	Name string `json:"name"`
-	Url  string `json:"url"`
+type page struct {
+	previous int
+	next     int
 }
 
 type config struct {
 	cache    *pokecache.Cache
-	next     string
-	previous string
+	page     *page
 	poketory pokerepository.PokeApi
 }
 
@@ -81,8 +71,12 @@ func main() {
 	cache := pokecache.NewCache(interval)
 	poketory := pokerepository.NewPokeApi(interval)
 
+	previous := -2
+	next := 0
+	actualPage := page{previous, next}
+	config := &config{cache: &cache, poketory: poketory, page: &actualPage}
+
 	scanner := bufio.NewScanner(os.Stdin)
-	config := &config{cache: &cache, poketory: poketory}
 
 	for {
 		fmt.Print("Pokedex > ")
@@ -103,8 +97,6 @@ func main() {
 		}
 	}
 }
-
-
 
 func commandExplore(args []string, config *config) error {
 	names, err := config.poketory.Encounters(args[0])
@@ -146,57 +138,36 @@ func commandCatch(args []string, config *config) error {
 
 func commandMapBack(args []string, config *config) error {
 
-	if config.previous == "" {
+	if config.page.next == 0 || config.page.previous < 0 {
 		fmt.Println("you're on the first page")
 		return nil
 	}
 
-	pokeIterations, err := getLocationsPokemon[pokeLocation](config.previous, *config)
+	pokeIterations, err := config.poketory.Locations(20, config.page.previous)
 	if err != nil {
 		return err
 	}
+	config.page.next = config.page.previous + 1
+	config.page.previous--
 
-	if pokeIterations.Previous != "" {
-		config.previous = pokeIterations.Previous
-	} else {
-		config.previous = ""
-	}
-
-	if pokeIterations.Next != "" {
-		config.next = pokeIterations.Next
-	} else {
-		config.next = "https://pokeapi.co/api/v2/location-area"
-	}
-
-	for _, value := range pokeIterations.Results {
-		fmt.Println(value.Name)
+	for _, value := range pokeIterations {
+		fmt.Println(value)
 	}
 
 	return nil
 }
 
 func commandMap(args []string, config *config) error {
-	path := "https://pokeapi.co/api/v2/location-area"
-
-	if config.next != "" {
-		path = config.next
-	}
-
-	pokeIterations, err := getLocationsPokemon[pokeLocation](path, *config)
+	pokeIterations, err := config.poketory.Locations(20, config.page.next)
 	if err != nil {
 		return err
 	}
 
-	if pokeIterations.Previous != "" {
-		config.previous = pokeIterations.Previous
-	}
+	config.page.previous = config.page.next - 1
+	config.page.next++
 
-	if pokeIterations.Next != "" {
-		config.next = pokeIterations.Next
-	}
-
-	for _, value := range pokeIterations.Results {
-		fmt.Println(value.Name)
+	for _, value := range pokeIterations {
+		fmt.Println(value)
 	}
 
 	return nil
@@ -220,6 +191,7 @@ func cleanInput(text string) []string {
 	return texts
 }
 
+/*
 func getLocationsPokemon[T any](path string, config config) (pokeIterator[T], error) {
 	val, ok := config.cache.Get(path)
 	if ok {
@@ -251,3 +223,4 @@ func getLocationsPokemon[T any](path string, config config) (pokeIterator[T], er
 
 	return pokeResponse, nil
 }
+*/

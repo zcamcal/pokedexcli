@@ -117,11 +117,11 @@ func (api *PokeApi) Encounters(area string) ([]string, error) {
 }
 
 func (api PokeApi) Locations(limit, page int) ([]string, error) {
-	if limit <= 0 {
+	if limit < 0 {
 		return nil, errors.New("limit cant be below 0")
 	}
 
-	if page <= 0 {
+	if page < 0 {
 		return nil, errors.New("page cant be below 0")
 	}
 
